@@ -43,6 +43,8 @@
 }
 
 * { box-sizing: border-box; }
+/* Classes like .practice-body set display, which would otherwise override the hidden attribute */
+[hidden] { display: none !important; }
 body {
   background: var(--bg);
   color: var(--ink);
@@ -277,7 +279,6 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 
 /* Tools */
 .tabpanel { display: grid; gap: 12px; }
-.tabpanel[hidden] { display: none; }
 .sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 14px; }
 .num, .text {
   font: inherit; font-size: 14px; color: var(--ink);
