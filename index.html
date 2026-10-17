@@ -670,7 +670,44 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     }
     applyVolume();
-    if (ctx.state === 'suspended') ctx.resume();
+    // iOS can also report 'interrupted' after a call or switching apps
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    unlockMobileAudio();
+  }
+
+  // iPhones mute Web Audio when the ring/silent switch is on silent. Declaring a
+  // playback session, and keeping a silent <audio> element playing, makes the
+  // click audible like music would be.
+  let silentEl = null;
+  function silentWavUrl() {
+    const rate = 8000, n = rate; // one second of 8-bit mono silence
+    const buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVE');
+    str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    str(36, 'data'); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+  function unlockMobileAudio() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    try {
+      if (!silentEl) {
+        silentEl = new Audio(silentWavUrl());
+        silentEl.loop = true;
+        silentEl.setAttribute('playsinline', '');
+      }
+      const p = silentEl.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) {}
+    // Older iOS only unlocks Web Audio once a sound starts inside a tap
+    try {
+      const b = ctx.createBufferSource();
+      b.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+      b.connect(ctx.destination);
+      b.start(0);
+    } catch (e) {}
   }
   function applyVolume() {
     if (!master) return;
@@ -876,7 +913,10 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     wakeLock = null;
   }
   document.addEventListener('visibilitychange', () => {
-    if (running && document.visibilityState === 'visible') requestWake();
+    if (running && document.visibilityState === 'visible') {
+      requestWake();
+      if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+    }
   });
 
   function start() {
@@ -904,6 +944,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     if (worker) worker.postMessage('stop');
     clearInterval(intervalId);
     beatQueue = []; current = null; counting = false;
+    try { silentEl && silentEl.pause(); } catch (e) {}
     setActiveBeat(-1);
     releaseWake();
     renderPlay();
